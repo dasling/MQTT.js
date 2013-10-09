@@ -1,15 +1,12 @@
 var mqtt = require('../..')
-  , util = require('util');
-var Dbclient = require('mariasql'); // https://github.com/mscdex/node-mariasql
+  , util = require('util')
+  , config = require('./config')
+  , Dbclient = require('mariasql'); // https://github.com/mscdex/node-mariasql
 
 // setup the DB connection
 var dbclient = new Dbclient();
-dbclient.connect({
-  host: 'CIB-flukso.mech.kuleuven.be',
-  db: 'perp_v1',
-  user: 'perpetual_pave',
-  password: '@PASSWORD@',
-});
+var db_config = config.getConfiguration().database;
+dbclient.connect(db_config);
 
 // log the events on the DB connection
 dbclient.on('connect', function() {
@@ -116,7 +113,7 @@ var myMQTTServer = mqtt.createServer(function(client) {
                                   client_id: client.id}))
       .on('result', function(res) {
 	res.on('row', function(row) {
-	  // console.log('Result row: ' + util.inspect(row));
+	  console.log('Result row: ' + util.inspect(row));
 	  // Store the channel_id
           channel_id_from_DB = row.channel_id;
           console.log('Channel id (in DB): ' + channel_id_from_DB);
