@@ -97,8 +97,7 @@ var myMQTTServer = mqtt.createServer(function(client) {
   client.on('subscribe', function(packet) {
     // double-check for device authorization
     if (client.authorized != true) {
-      // MQTT 3.1 says we can't send anything to say that subscribe not denied
-      return;
+      return; // MQTT 3.1 says we can't send anything to say that subscribe not denied
     }
     
     var granted = [];
@@ -115,19 +114,27 @@ var myMQTTServer = mqtt.createServer(function(client) {
     client.suback({messageId: packet.messageId, granted: granted}); // Granted are the granted QoS'es
   });
 
-  client.on('publish', function(packet) {    // TODO: Rewrite this with the async library (parallel execution path)
-    // Sanitize the input/payload
-    console.log("***********************");
-    console.log("PUBLISH received: client id: "  + client.id + ", payload: " + packet.payload + ", topic: " + packet.topic);
+  client.on('publish', function(packet) {
+    // double-check for device authorization
+    if (client.authorized != true) {
+      db_util.log(packet, 'Unauthorized publish', dbclient);
+      return; // no such thing a sending a negative PUBACK
+    }
+    else {
+      db_util.log(packet, "PUBLISH: client id: "  + client.id + ", payload: " + packet.payload + ", topic: " + packet.topic, dbclient);
     
-    // TODO: should the client id be checked (can it publish if not "connected"?)
-    
+    // TODO: Start async from here
+
+    // TODO: Check if the topic exists, and what regular expression to apply to this topic
+
+    // TODO: Check in the sensor if we need to log it
+
     // store in database when topic ends with "gauge"
     if ((new RegExp('^\/sensor')).test(packet.topic) | (new RegExp('^\/actuator')).test(packet.topic) | (new RegExp('^\/algo')).test(packet.topic)) {
       // convert the payload to an array
       var packet_payload = packet.payload.slice(1,-1).split(','); 	// payload now equals [ '1368630597', '0', '"W"' ]
       packet_payload[2] = packet_payload[2].slice(1,-1); 		// payload now equals [ '1368630597', '0', 'W' ]
-      console.log("Payload/Datetime: " + packet_payload[0] + ", Payload/Value: " + packet_payload[1] + ", Payload/Unit: " + packet_payload[2]);
+      db_util.log(packet, "Payload/Datetime: " + packet_payload[0] + ", Payload/Value: " + packet_payload[1] + ", Payload/Unit: " + packet_payload[2], dbclient);
       
       // TODO: Check the unit (is it correctly set in the DB?), maybe we only want to do this once? caching the result thus.
 
