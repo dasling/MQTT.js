@@ -95,6 +95,12 @@ var myMQTTServer = mqtt.createServer(function(client) {
   });
 
   client.on('subscribe', function(packet) {
+    // double-check for device authorization
+    if (client.authorized != true) {
+      // MQTT 3.1 says we can't send anything to say that subscribe not denied
+      return;
+    }
+    
     var granted = [];
 
     for (var i = 0; i < packet.subscriptions.length; i++) {
@@ -106,7 +112,7 @@ var myMQTTServer = mqtt.createServer(function(client) {
       client.subscriptions.push(reg);
     }
 
-    client.suback({messageId: packet.messageId, granted: granted});
+    client.suback({messageId: packet.messageId, granted: granted}); // Granted are the granted QoS'es
   });
 
   client.on('publish', function(packet) {    // TODO: Rewrite this with the async library (parallel execution path)
