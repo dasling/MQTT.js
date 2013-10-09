@@ -122,7 +122,7 @@ var myMQTTServer = mqtt.createServer(function(client) {
     }
     else {
       db_util.log(packet, "PUBLISH: client id: "  + client.id + ", payload: " + packet.payload + ", topic: " + packet.topic, dbclient);
-    
+   } 
     // TODO: Start async from here
 
     // TODO: Check if the topic exists, and what regular expression to apply to this topic
