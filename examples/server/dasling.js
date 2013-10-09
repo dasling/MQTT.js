@@ -1,7 +1,8 @@
 var mqtt = require('../..')
   , util = require('util')
   , config = require('./config')
-  , Dbclient = require('mariasql'); // https://github.com/mscdex/node-mariasql
+  , Dbclient = require('mariasql') // https://github.com/mscdex/node-mariasql
+  , db_util = require('./db_util');
 
 // setup the DB connection
 var dbclient = new Dbclient();
@@ -25,40 +26,72 @@ var myMQTTServer = mqtt.createServer(function(client) {
 
   var self = this;
 
-  if (!self.clients) self.clients = {}; // Should be in the creation of the server, not to be checked each time a client connects
+  if (!self.clients) self.clients = {}; 
 
   client.on('connect', function(packet) {
+        //Connack return codes are:
+        //0 0x00 Connection Accepted
+        //1 0x01 Connection Refused: unacceptable protocol version
+        //2 0x02 Connection Refused: identifier rejected
+        //3 0x03 Connection Refused: server unavailable
+        //4 0x04 Connection Refused: bad user name or password
+        //5 0x05 Connection Refused: not authorized
+        //6-255  Reserved for future use 
+
     // TODO: If the client sends an invalid CONNECT message, the server should close the connection. This includes CONNECT 
     // messages that provide invalid Protocol Name or Protocol Version Numbers. If the server can parse enough of the 
     // CONNECT message to determine that an invalid protocol has been requested, it may try to send a CONNACK containing 
     // the "Connection Refused: unacceptable protocol version" code before dropping the connection.
 
-    // If username and password (from the CONNECT packet in MQTT v3.1) are non-falsy, proceed ...
-    //console.log("CONNECT PACKET:");
-    //console.log(packet);
+    // Check the device authorization
+    if (packet.username && packet.password && packet.clientId) {
+      
+      // log connection to DB
+      db_util.log(packet, "CONNECT: Client " + packet.clientId + " connected with credentials: " + client.username + " / " + client.password, dbclient);
 
-    if (packet.username && packet.password) {
-      // store these in the client connection object, for later use
-      client.username = packet.username; 
-      client.password = packet.password;
-      console.log("CONNECT: Client " + packet.clientId + " connected with credentials: " + client.username + " / " + client.password);
-      
-      // TODO: Check to verify the connect
-      
-      // TODO: Check whether this username/password has this clientid (or we can check this when clashes occur, see below)
-      
-      // TODO: Check for the client id, If a client with the same Client ID is already connected to the server, 
-      // the "older" client must be disconnected (e.g. client.stream.end() ) by the server before completing the 
-      // CONNECT flow of the new client.
-      client.id = packet.clientId; 	// ClientID is stored in the connect packet
-      client.subscriptions = [];      	// Set up the empty subscriptions array for this client
-      
-      // Store the client in a associative array
-      self.clients[client.id] = client;
+      var preproc_sql = dbclient.prepare('SELECT device_id FROM device_auth WHERE client_id = :id AND username = :username AND password = :password AND status_id = 1');
 
-      client.connack({returnCode: 0});      
-    } 
-    console.log("*** WARNING *** CONNECT: Received a connect packet missing a username or a password.");
+      dbclient.query(preproc_sql({id: packet.clientId, username: packet.username, password: packet.password }))
+        .on('result', function(res) {
+	  res.on('row', function(row) { // Device is authorized
+            db_util.log(packet, 'Connect from authorized device: ' + util.inspect(row));
+            // Store information inside the client object
+            client.authorized = true;
+            client.username = packet.username;
+            client.password = packet.password;
+            client.id = packet.clientId;
+	  })
+          .on('error', function(err) {
+            console.log('Result error: ' + util.inspect(err));
+          })
+          .on('end', function(info) {
+            if (info.numRows > 1) {
+              // This is not necessarily a problem, but only the last device retrieved with these credentials will be stored
+              db_util(packet, 'ClientId, username, password has multiple devices', dbclient);
+            }
+            if (info.numRows < 1) {
+              // Device is not authorized
+              db_util.log(util.inspect(packet), '*** WARNING *** CONNECT: Received a connect packet with a bad authorization (clientId, username, password combo). Sending connack with return code 4 (bad username or password)', dbclient);
+              client.connack({returnCode: 4});  // Bad username or password
+            }
+            if (info.numRows == 1) {
+              // TODO: Check for the client id, If a client with the same Client ID is already connected to the server, 
+              // the "older" client must be disconnected (e.g. client.stream.end() ) by the server before completing the 
+              // CONNECT flow of the new client.
+              client.subscriptions = [];      	// Set up the empty subscriptions array for this client
+              // Store the client in a associative array
+              self.clients[client.id] = client;
+              client.connack({returnCode: 0});      
+            }
+          });
+       })
+       .on('end', function() {
+       });
+    }
+    else {
+      db_util.log(util.inspect(packet), 'CONNECT: Received a connect packet missing a username or a password. Sending connack with return code 4 (bad username or password)', dbclient);
+      client.connack({returnCode: 4});  // Bad username or password
+    }
   });
 
   client.on('subscribe', function(packet) {
