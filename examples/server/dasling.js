@@ -72,7 +72,7 @@ var myMQTTServer = mqtt.createServer(function(client) {
             }
             if (info.numRows < 1) {
               // Device is not authorized
-              db_util.log(util.inspect(packet), '*** WARNING *** CONNECT: Received a connect packet with a bad authorization (clientId, username, password combo). Sending connack with return code 4 (bad username or password)', dbclient, DEBUG_TO_CONSOLE);
+              db_util.log(util.inspect(packet), 'CONNECT: Received a connect packet with a BAD authorization (clientId:"' + packet.clientId + '", username: "' + packet.username + '" , password: "' + packet.password + '"). Sending connack with return code 4 (bad username or password)', dbclient, DEBUG_TO_CONSOLE);
               client.connack({returnCode: 4});  // Bad username or password
             }
             if (info.numRows == 1) {
