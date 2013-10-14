@@ -1,17 +1,19 @@
 var util = require('util');
 
-exports.log = function(log_msg, log_human_msg, dbclient, debug_to_console) {
+exports.log = function(log_msg, log_human_msg, dbclient, debug_type, debug_level) {
 
-  if(typeof(debug_to_console)==='undefined') debug_to_console = 0; // default is no debug 
+  if(typeof(debug_level)==='undefined') debug_level = 0; // default is no debug 
   
-  if(debug_to_console > 1) {  // human output + details
+  // No output of machine format below debug_level 10
+  if((debug_level >= debug_type) && (debug_level < 10)) {  // human output 
     console.log('***********');
-    console.log('Message:' + util.inspect(log_msg));
     console.log('Human message:' + util.inspect(log_human_msg));
   }
-
-  if(debug_to_console == 1) { // only human readable output
+  
+  // Output also machine format if debug_level > 10
+  if(debug_level >= (debug_type + 10)) {  // human output 
     console.log('***********');
+    console.log('Message:' + util.inspect(log_msg));
     console.log('Human message:' + util.inspect(log_human_msg));
   }
 
@@ -31,5 +33,4 @@ exports.log = function(log_msg, log_human_msg, dbclient, debug_to_console) {
     });
   })
   .on('end', function() {
-  });
-}
+  });}
