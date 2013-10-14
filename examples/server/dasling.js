@@ -5,12 +5,7 @@ var mqtt = require('../..')
   , db_util = require('./db_util')
   , async = require('async');
 
-var DEBUG_TO_CONSOLE = 2;
-
-// Extending the regular expression prototype (see http://stackoverflow.com/questions/3561493/is-there-a-regexp-escape-function-in-javascript/3561711#3561711 )
-RegExp.escape= function(s) {
-    return s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
-};
+var DEBUG_TO_CONSOLE = 1;
 
 // setup the DB connection
 var dbclient = new Dbclient();
@@ -134,7 +129,7 @@ var myMQTTServer = mqtt.createServer(function(client) {
       function(callback) {  
         // arg1 will be passed down the waterfall, adding results to it in each function
         var arg1 = {
-                    client:  {organization_id : 1,
+                    client:  {organization_id : 0,
                               client_id: client.id      // TODO: Need to sanity check this input
                              },            
                     packet:  {topic: packet.topic,
@@ -154,8 +149,9 @@ var myMQTTServer = mqtt.createServer(function(client) {
             // TODO: Need to make a regex which can change the ordering, because now
             // timestamp needs to be first subgroup, value second subgroup
             // E.g.: /[(\[1-9\]*),(.*), (.*)\]/gm;
-            if (arg1.channel.payload_regexp == '') {
-              arg1.channel.payload_regexp = '/[(\[1-9\]*),(.*), (.*)\]/gm'; // default regexp
+            //console.log('regex:' + util.inspect(arg1.channel.payload_regexp));
+            if (arg1.channel.payload_regexp == '' || arg1.channel.payload_regexp == null) {
+              arg1.channel.payload_regexp = "/\\[([0-9]*),([0-9]*),(.*)\\]/gm"; // default regexp
             }
             var flags = arg1.channel.payload_regexp.replace(/.*\/([gimy]*)$/, '$1');
             var pattern = arg1.channel.payload_regexp.replace(new RegExp('^/(.*?)/'+flags+'$'), '$1');
@@ -173,7 +169,12 @@ var myMQTTServer = mqtt.createServer(function(client) {
         }
       , insert_reading_and_value
       , function(arg1, callback) { // republishing
-          db_util.log(arg1, "Republishing if subscriptions to " + arg1.variable.republish_topic, dbclient, DEBUG_TO_CONSOLE);
+          if (arg1.variable.republish_topic == null || arg1.variable.republish_topic == '') { 
+            db_util.log(arg1, "No republishing set", dbclient, DEBUG_TO_CONSOLE);
+          }
+          else {
+            db_util.log(arg1, "Republishing if subscriptions to " + arg1.variable.republish_topic, dbclient, DEBUG_TO_CONSOLE);
+          }
 
           for (var k in self.clients) {
             var c = self.clients[k]
@@ -274,7 +275,6 @@ var get_channel_and_variable = function (arg1, callback) {
   var sql_stat = preproc_sql({channel_user_given_id: arg1.packet.topic, 
                               organization_id: arg1.client.organization_id,
                               client_id: arg1.client.client_id});
-                              
   dbclient.query(sql_stat)
   .on('result', function(res) {
     res.on('row', function(row) {
@@ -287,9 +287,9 @@ var get_channel_and_variable = function (arg1, callback) {
     })
     .on('end', function(info) {
       if (info.numRows != 1) { // No authorization
-        var error_statement = "Client_id " + arg1.client.client_id + "not authorized for channel " + arg1.packet.topic;
+        var error_statement = "Client_id " + arg1.client.client_id + " not authorized for channel " + arg1.packet.topic;
         db_util.log(arg1, error_statement, dbclient, DEBUG_TO_CONSOLE);
-        callback(error_statement, channel);
+        callback(error_statement);
       } else { // All is fine
         callback(null, arg1);
       }    
@@ -304,7 +304,7 @@ var insert_reading_and_value = function (arg1, callback) {
   var preproc_sql = dbclient.prepare(
     'INSERT INTO readings (organization_id, measured_at_timestamp) ' 
     + 'VALUES (:organization_id, :measured_at_timestamp)');
-  var sql_stat = preproc_sql({organization_id : 1, measured_at_timestamp : arg1.packet.timestamp}); 
+  var sql_stat = preproc_sql({organization_id : arg1.client.organization_id, measured_at_timestamp : arg1.packet.timestamp}); 
   
   dbclient.query(sql_stat)
   .on('result', function(res) {
@@ -322,7 +322,7 @@ var insert_reading_and_value = function (arg1, callback) {
         var preproc_sql = dbclient.prepare(
             'INSERT INTO value (organization_id, reading_id, variable_id, channel_id, value) ' 
             + 'VALUES (:organization_id, :reading_id, :variable_id, :channel_id, :value)');
-        var sql_stat = preproc_sql({organization_id : 1, 
+        var sql_stat = preproc_sql({organization_id : arg1.client.organization_id, 
                                     reading_id : reading_id,
                                     variable_id : arg1.variable.variable_id, 
                                     channel_id : arg1.channel.channel_id,
