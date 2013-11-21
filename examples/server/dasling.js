@@ -23,7 +23,7 @@ dbclient.on('connect', function() {
    console.log('DB Client error: ' + err);
  })
  .on('close', function(hadError) {
-   console.log('DB Client closed');
+   console.log('DB Client closed due to: ' + hadError);
  });
  
 var myMQTTServer = mqtt.createServer(function(client) {
@@ -35,6 +35,7 @@ var myMQTTServer = mqtt.createServer(function(client) {
   if (!self.clients) self.clients = {}; 
   
   client.on('connect', function(packet) {
+    console.log(util.inspect(packet));    
         //Connack return codes are:
         //0 0x00 Connection Accepted
         //1 0x01 Connection Refused: unacceptable protocol version
@@ -207,17 +208,17 @@ var myMQTTServer = mqtt.createServer(function(client) {
   });
   
   client.on('pingreq', function(packet) {
-    db_util.log(packet, 'Ping request.', dbclient, DEBUG_INFO, DEBUG_LEVEL);
+    db_util.log(util.inspect(client) + " " + util.inspect(packet), 'Ping request.', dbclient, DEBUG_INFO, DEBUG_LEVEL);
     client.pingresp();
   });
 
   client.on('disconnect', function(packet) {
-    db_util.log(packet, 'Client disconnected.', dbclient, DEBUG_INFO, DEBUG_LEVEL);
+    db_util.log(util.inspect(packet), 'Client disconnected.', dbclient, DEBUG_INFO, DEBUG_LEVEL);
     client.stream.end();
   });
 
   client.on('close', function(packet) {
-    db_util.log(packet, 'Client closed connection.', dbclient, DEBUG_INFO, DEBUG_LEVEL);
+    db_util.log(util.inspect(packet), 'Client closed connection.', dbclient, DEBUG_INFO, DEBUG_LEVEL);
     delete self.clients[client.id];
   });
 
