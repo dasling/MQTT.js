@@ -22,7 +22,7 @@ exports.log = function(log_msg, log_human_msg, dbclient, debug_type, debug_level
   }
 
   // except a log message, and log it to the DB
-  var pq = dbclient.prepare('INSERT INTO log (message, human_message, client, device, channel, variable) VALUES (:message, :human_message, :client, :device, :channel, : variable)');
+  var pq = dbclient.prepare('INSERT INTO log (message, human_message, client, device, channel, variable) VALUES (:message, :human_message, :client, :device, :channel, :variable)');
 
   dbclient.query(pq({message: log_msg, human_message: log_human_msg, client: client, device: device, channel: channel, variable: variable }))
   .on('result', function(res) {

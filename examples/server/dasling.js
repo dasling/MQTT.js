@@ -35,35 +35,26 @@ var myMQTTServer = mqtt.createServer(function(client) {
   if (!self.clients) self.clients = {}; 
   
   client.on('connect', function(packet) {
-    console.log(util.inspect(packet));    
-        //Connack return codes are:
-        //0 0x00 Connection Accepted
-        //1 0x01 Connection Refused: unacceptable protocol version
-        //2 0x02 Connection Refused: identifier rejected
-        //3 0x03 Connection Refused: server unavailable
-        //4 0x04 Connection Refused: bad user name or password
-        //5 0x05 Connection Refused: not authorized
-        //6-255  Reserved for future use 
 
-    // TODO: If the client sends an invalid CONNECT message, the server should close the connection. This includes CONNECT 
-    // messages that provide invalid Protocol Name or Protocol Version Numbers. If the server can parse enough of the 
-    // CONNECT message to determine that an invalid protocol has been requested, it may try to send a CONNACK containing 
-    // the "Connection Refused: unacceptable protocol version" code before dropping the connection.
+    //console.log(util.inspect(packet.clientId));    
+    db_util.log(util.inspect(packet), 'Connect from ' + packet.clientId, dbclient, DEBUG_INFO, DEBUG_LEVEL, packet.clientId);
 
     // Check the device authorization
     if (packet.username && packet.password && packet.clientId) {
-      
+ 
       var preproc_sql = dbclient.prepare('SELECT device_id FROM device_auth WHERE client_id = :id AND username = :username AND password = :password AND status_id = 1');
       var sql_stat = preproc_sql({id: packet.clientId, username: packet.username, password: packet.password}); 
       dbclient.query(sql_stat)
         .on('result', function(res) {
+          client.device_id = [];
 	  res.on('row', function(row) { // Device is authorized
-            db_util.log(packet, 'Connect from authorized device: ' + util.inspect(row), dbclient, DEBUG_INFO, DEBUG_LEVEL);
+            db_util.log(util.inspect(packet), 'Connect from ' + packet.clientId + " authorized", dbclient, DEBUG_INFO, DEBUG_LEVEL, packet.clientId);
             // Store information inside the client object
             client.authorized = true;
             client.username = packet.username;
             client.password = packet.password;
             client.id = packet.clientId;
+            client.device_id.push(row.device_id);
 	  })
           .on('error', function(err) {
             db_util.log(sql_stat, 'DB error: ' + util.inspect(err), DEBUG_ERROR, DEBUG_LEVEL);
@@ -72,14 +63,14 @@ var myMQTTServer = mqtt.createServer(function(client) {
           .on('end', function(info) {
             if (info.numRows > 1) {
               // This is not necessarily a problem, but only the last device retrieved with these credentials will be stored
-              db_util.log(packet, 'ClientId, username, password has multiple devices', dbclient, DEBUG_WARNING, DEBUG_LEVEL);
+              db_util.log(util.inspect(packet), "Client (" + packet.clientId + ") authorization for multiple devices with same username and password", dbclient, DEBUG_WARNING, DEBUG_LEVEL, packet.clientId, util.inspect(client.device_id));
             }
             if (info.numRows < 1) {
               // Device is not authorized
-              db_util.log(packet, 'CONNECT: Received a connect packet with a BAD authorization (clientId:"' + packet.clientId + '", username: "' + packet.username + '" , password: "' + packet.password + '"). Sending connack with return code 4 (bad username or password)', dbclient, DEBUG_WARNING, DEBUG_LEVEL);
+              db_util.log(util.inspect(packet), 'Connect with bad authorization (clientId:"' + packet.clientId + '", username: "' + packet.username + '" , password: "' + packet.password + '"). Sending connack with return code 4 (bad username or password)', dbclient, DEBUG_WARNING, DEBUG_LEVEL, packet.clientId);
               client.connack({returnCode: 4});  // Bad username or password
             }
-            if (info.numRows == 1) {
+            if (info.numRows >= 1) {
               // TODO: Check for the client id, If a client with the same Client ID is already connected to the server, 
               // the "older" client must be disconnected (e.g. client.stream.end() ) by the server before completing the 
               // CONNECT flow of the new client.
@@ -87,6 +78,7 @@ var myMQTTServer = mqtt.createServer(function(client) {
               // Store the client in a associative array
               self.clients[client.id] = client;
               client.connack({returnCode: 0});      
+              db_util.log(util.inspect(packet), "Client (" + packet.clientId + ") authorization success", dbclient, DEBUG_WARNING, DEBUG_LEVEL, packet.clientId, util.inspect(client.device_id));
             }
           });
        })
@@ -94,7 +86,7 @@ var myMQTTServer = mqtt.createServer(function(client) {
        });
     }
     else {
-      db_util.log(packet, 'CONNECT: Received a connect packet missing a username or a password. Sending connack with return code 4 (bad username or password)', dbclient, DEBUG_WARNING, DEBUG_LEVEL);
+      db_util.log(util.inspect(packet), 'CONNECT: Received a connect packet missing a username or a password. Sending connack with return code 4 (bad username or password)', dbclient, DEBUG_WARNING, DEBUG_LEVEL, packet.clientId);
       client.connack({returnCode: 4});  // Bad username or password
     }
   });
@@ -107,6 +99,7 @@ var myMQTTServer = mqtt.createServer(function(client) {
     
     var granted = [];
 
+    //  TODO: Need to check whether subscription are allowed based on feature GROUPS to add to the DB still
     for (var i = 0; i < packet.subscriptions.length; i++) {
       var qos = packet.subscriptions[i].qos
         , topic = packet.subscriptions[i].topic
@@ -114,7 +107,7 @@ var myMQTTServer = mqtt.createServer(function(client) {
 
       granted.push(qos);
       client.subscriptions.push(reg);
-      db_util.log(client.subscriptions, "Client subscribed", dbclient, DEBUG_INFO, DEBUG_LEVEL); // Granted are the granted QoS'es
+      db_util.log(util.inspect(client.subscriptions), "Client subscribed", dbclient, DEBUG_INFO, DEBUG_LEVEL, client.id); // Granted are the granted QoS'es
     }
     client.suback({messageId: packet.messageId, granted: granted}); // Granted are the granted QoS'es
   });
