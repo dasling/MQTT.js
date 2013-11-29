@@ -74,4 +74,22 @@ var server = mqtt.createServer(function (client) {
 
 describe('MqttClient', function() {
   abstractClientTests(server, createClient, port);
+
+  describe('message ids', function() {
+
+    it('should increment the message id', function() {
+      var client = createClient();
+      var currentId = client._nextId();
+
+      client._nextId().should.equal(currentId + 1);
+    }),
+
+    it('should return 1 once the interal counter reached limit', function() {
+      var client = createClient();
+      client.nextId = 65535;
+
+      client._nextId().should.equal(65535);
+      client._nextId().should.equal(1);
+    })
+  })
 });

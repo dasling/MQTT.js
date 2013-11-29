@@ -25,6 +25,39 @@ in JavaScript to be used in node.js.
 
     npm install mqtt
 
+## Example
+
+First you will need to install and run a broker, such as
+[Mosquitto](http://mosquitto.org) or
+[Mosca](http://mcollina.github.io/mosca/), and launch it.
+
+For the sake of simplicity, let's put the subscriber and the publisher in the same file:
+```js
+var mqtt = require('mqtt')
+
+client = mqtt.createClient(1883, 'localhost');
+
+client.subscribe('presence');
+client.publish('presence', 'Hello mqtt');
+
+client.on('message', function (topic, message) {
+  console.log(message);
+});
+
+client.end();
+```
+
+output:
+```
+Hello mqtt
+```
+
+If you do not want to install a separate broker, you can try using the
+[server/orig](https://github.com/adamvr/MQTT.js/blob/master/examples/server/orig.js)
+example.
+It implements enough of the semantics of the MQTT protocol to
+run the example.
+
 ## Documentation
 
 Detailed documentation can be found in [the wiki](http://github.com/adamvr/MQTT.js/wiki)
@@ -56,6 +89,7 @@ client.publish('messages', 'hello me!');
 client.on('message', function(topic, message) {
   console.log(message);
 });
+client.options.reconnectPeriod = 0;  // disable automatic reconnect
 ```
 
 ### Chainable API!
@@ -125,3 +159,7 @@ mqtt.createServer(function(client) {
   });
 }).listen(1883);
 ```
+
+## License
+
+MIT
