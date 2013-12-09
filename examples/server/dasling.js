@@ -287,7 +287,7 @@ var get_channel_and_variable = function (arg1, callback) {
     .on('end', function(info) {
       if (info.numRows != 1) { // No authorization
         var error_statement = "Client_id " + arg1.client.client_id + " not authorized for channel " + arg1.packet.topic;
-        db_util.log(util.inspect(arg1), error_statement, dbclient, DEBUG_WARNING, DEBUG_LEVEL, arg1.client.client_id);
+        db_util.log(util.inspect(sql_stat), error_statement, dbclient, DEBUG_WARNING, DEBUG_LEVEL, arg1.client.client_id);
         callback(error_statement);
       } else { // All is fine
         callback(null, arg1);
