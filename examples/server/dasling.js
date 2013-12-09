@@ -43,7 +43,8 @@ var myMQTTServer = mqtt.createServer(function(client) {
     if (packet.username && packet.password && packet.clientId) {
  
       var preproc_sql = dbclient.prepare('SELECT device_id FROM device_auth WHERE client_id = :id AND username = :username AND password = :password AND status_id = 1');
-      var sql_stat = preproc_sql({id: packet.clientId, username: packet.username, password: packet.password}); 
+      var sql_stat = preproc_sql({id: packet.clientId, username: packet.username, password: packet.password});
+      db_util.log(util.inspect(sql_stat), "SQL - Device authorization check", dbclient, DEBUG_INFO, DEBUG_LEVEL, packet.clientId); 
       dbclient.query(sql_stat)
         .on('result', function(res) {
           client.device_id = [];
@@ -121,7 +122,7 @@ var myMQTTServer = mqtt.createServer(function(client) {
       return; // no such thing as sending a negative PUBACK
     }
     else {
-      db_util.log(packet, "PUBLISH: client id: "  + client.id + ", payload: " + packet.payload + ", topic: " + packet.topic, dbclient, DEBUG_INFO, DEBUG_LEVEL, client.id);
+      db_util.log(util.inspect(packet), "PUBLISH: client id: "  + client.id + ", payload: " + packet.payload + ", topic: " + packet.topic, dbclient, DEBUG_INFO, DEBUG_LEVEL, client.id);
     }
     
     async.waterfall([ // DOC: https://github.com/caolan/async#series
@@ -141,7 +142,7 @@ var myMQTTServer = mqtt.createServer(function(client) {
       , get_channel_and_variable
       , function(arg1, callback) {
           
-          // apply the regular expression to the topic
+          // apply the regular expression to the payload 
           var rePattern;
           try {
             // TODO: Need to make a regex which can change the ordering, because now
@@ -158,7 +159,9 @@ var myMQTTServer = mqtt.createServer(function(client) {
             var matches = rePattern.exec(arg1.packet.payload);
             arg1.packet.timestamp = matches[1];
             arg1.packet.value = matches[2];
-            callback(null, arg1);
+            //console.log(arg1.packet.payload);
+            //console.log(arg1.packet.value);
+	    callback(null, arg1);
           } 
           catch (err) {
             db_util.log(err, err, dbclient, DEBUG_WARNING, DEBUG_LEVEL, arg1.client.client_id);
@@ -202,12 +205,12 @@ var myMQTTServer = mqtt.createServer(function(client) {
   });
   
   client.on('pingreq', function(packet) {
-    db_util.log(util.inspect(client) + " " + util.inspect(packet), 'Ping request.', dbclient, DEBUG_INFO, DEBUG_LEVEL, packet.clientId);
+    db_util.log(util.inspect(packet), 'Ping request.', dbclient, DEBUG_INFO, DEBUG_LEVEL, client.id);
     client.pingresp();
   });
 
   client.on('disconnect', function(packet) {
-    db_util.log(util.inspect(packet), 'Client disconnected.', dbclient, DEBUG_INFO, DEBUG_LEVEL, packet.clientId);
+    db_util.log(util.inspect(packet), 'Client disconnected.', dbclient, DEBUG_INFO, DEBUG_LEVEL, client.id);
     client.stream.end();
   });
 
@@ -284,7 +287,7 @@ var get_channel_and_variable = function (arg1, callback) {
     .on('end', function(info) {
       if (info.numRows != 1) { // No authorization
         var error_statement = "Client_id " + arg1.client.client_id + " not authorized for channel " + arg1.packet.topic;
-        db_util.log(arg1, error_statement, dbclient, DEBUG_WARNING, DEBUG_LEVEL, arg1.client.client_id);
+        db_util.log(util.inspect(arg1), error_statement, dbclient, DEBUG_WARNING, DEBUG_LEVEL, arg1.client.client_id);
         callback(error_statement);
       } else { // All is fine
         callback(null, arg1);
@@ -325,7 +328,7 @@ var insert_reading_and_value = function (arg1, callback) {
                                       reading_id : reading_id,
                                       variable_id : arg1.variable.variable_id, 
                                       channel_id : arg1.channel.channel_id,
-                                      value : arg1.packet.payload});
+                                      value : arg1.packet.value});
           
           dbclient.query(sql_stat)
           .on('result', function(res) {
