@@ -58,13 +58,15 @@ var myMQTTServer = mqtt.createServer(function(client) {
             client.device_id.push(row.device_id);
 	  })
           .on('error', function(err) {
-            db_util.log(sql_stat, 'DB error: ' + util.inspect(err), DEBUG_ERROR, DEBUG_LEVEL, packet.clientId);
+            db_util.log(sql_stat, 'DB error: ' + util.inspect(err), dbclient, DEBUG_ERROR, DEBUG_LEVEL, packet.clientId);
             console.log('DB error: ' + util.inspect(err) + "(" + util.inspect(sql_stat) + ")");
           })
           .on('end', function(info) {
             if (info.numRows > 1) {
-              // This is not necessarily a problem, but only the last device retrieved with these credentials will be stored
-              db_util.log(util.inspect(packet), "Client (" + packet.clientId + ") authorization for multiple devices with same client identification, username and password", dbclient, DEBUG_WARNING, DEBUG_LEVEL, packet.clientId, util.inspect(client.device_id));
+              for (i = 0; i < client.device_id.length; i++) {
+	        // This is not necessarily a problem, but only the last device retrieved with these credentials will be stored
+        	db_util.log(util.inspect(packet), "Client (" + packet.clientId + ") authorization for multiple devices with same client identification, username and password", dbclient, DEBUG_WARNING, DEBUG_LEVEL, packet.clientId, util.inspect(client.device_id[i]));
+              }
             }
             if (info.numRows < 1) {
               // Device is not authorized
@@ -110,7 +112,7 @@ var myMQTTServer = mqtt.createServer(function(client) {
       client.subscriptions.push(reg);
 
       // TODO: add device_id & channel_id to the log (need to retrieve the values from the DB first) 
-      db_util.log(util.inspect(client.subscriptions), "Client subscribed", dbclient, DEBUG_INFO, DEBUG_LEVEL, client.id); // Granted are the granted QoS'es
+      db_util.log(util.inspect(client.subscriptions), "Client subscribed", dbclient, DEBUG_INFO, DEBUG_LEVEL, client.id, null, topic); // Granted are the granted QoS'es
     }
     client.suback({messageId: packet.messageId, granted: granted}); // Granted are the granted QoS'es
   });
@@ -118,15 +120,15 @@ var myMQTTServer = mqtt.createServer(function(client) {
   client.on('publish', function(packet) {
     // double-check for device authorization
     if (client.authorized != true) {
-      db_util.log(util.inspect(packet), 'Unauthorized publish', dbclient, DEBUG_WARNING, DEBUG_LEVEL, client.id);
+      db_util.log(util.inspect(packet), 'Unauthorized publish', dbclient, DEBUG_WARNING, DEBUG_LEVEL, client.id, null, packet.topic);
       return; // no such thing as sending a negative PUBACK
     }
     else {
-      db_util.log(util.inspect(packet), "PUBLISH: client id: "  + client.id + ", payload: " + packet.payload + ", topic: " + packet.topic, dbclient, DEBUG_INFO, DEBUG_LEVEL, client.id);
+      db_util.log(util.inspect(packet), "PUBLISH: client id: "  + client.id + ", payload: " + packet.payload + ", topic: " + packet.topic, dbclient, DEBUG_INFO, DEBUG_LEVEL, client.id, null, packet.topic);
     }
     
     async.waterfall([ // DOC: https://github.com/caolan/async#series
-      function(callback) {  
+      function(callback) {
         // arg1 will be passed down the waterfall, adding results to it in each function
         var arg1 = {
                     client:  {organization_id : 0,
@@ -164,17 +166,17 @@ var myMQTTServer = mqtt.createServer(function(client) {
 	    callback(null, arg1);
           } 
           catch (err) {
-            db_util.log(err, err, dbclient, DEBUG_WARNING, DEBUG_LEVEL, arg1.client.client_id);
+            db_util.log(err, err, dbclient, DEBUG_WARNING, DEBUG_LEVEL, arg1.client.client_id, arg1.device.device_manufacturer_identification, packet.topic, arg1.variable.name);
             callback("Regular expression failed to execute on payload");
           }
         }
       , insert_reading_and_value
       , function(arg1, callback) { // republishing
           if (arg1.variable.republish_topic == null || arg1.variable.republish_topic == '') { 
-            db_util.log(arg1, "No republishing set", dbclient, DEBUG_INFO, DEBUG_LEVEL);
+            db_util.log(arg1, "No republishing set", dbclient, DEBUG_INFO, DEBUG_LEVEL, arg1.client.client_id, arg1.device.device_manufacturer_identification, packet.topic, arg1.variable.name);
           }
           else {
-            db_util.log(arg1, "Republishing if subscriptions to " + arg1.variable.republish_topic, dbclient, DEBUG_INFO, DEBUG_LEVEL);
+            db_util.log(arg1, "Republishing if subscriptions to " + arg1.variable.republish_topic, dbclient, DEBUG_INFO, DEBUG_LEVEL, arg1.client.client_id, arg1.device.device_manufacturer_identification, packet.topic, arg1.variable.name);
           }
 
           for (var k in self.clients) {
@@ -193,7 +195,7 @@ var myMQTTServer = mqtt.createServer(function(client) {
               var republish_mqtt_msg = {topic: arg1.variable.republish_topic, payload: arg1.packet.payload};
               c.publish(republish_mqtt_msg);
               db_util.log(republish_mqtt_msg,
-                          "Republished: " + util.inspect(republish_mqtt_msg), dbclient, DEBUG_INFO, DEBUG_LEVEL);
+                          "Republished: " + util.inspect(republish_mqtt_msg), dbclient, DEBUG_INFO, DEBUG_LEVEL, arg1.client.client_id, arg1.device.device_manufacturer_identification, packet.topic, arg1.variable.name);
             }
           }
         }
@@ -258,7 +260,8 @@ process.on('uncaughtException',function(error){
 var get_channel_and_variable = function (arg1, callback) {
   
   var preproc_sql = dbclient.prepare('SELECT a.client_id AS client_id, c.channel_id AS channel_id, c.payload_regexp as payload_regexp \
-                                             , v.variable_id, v.republish_topic, v.store_in_DB \
+                                             , v.variable_id, v.republish_topic, v.store_in_DB, v.name \
+                                             , d.device_manufacturer_identification \
                                       FROM channels c \
                                         JOIN devices d \
                                           ON c.device_id = d.device_id AND c.organization_id = d.organization_id \
@@ -277,17 +280,18 @@ var get_channel_and_variable = function (arg1, callback) {
   dbclient.query(sql_stat)
   .on('result', function(res) {
     res.on('row', function(row) {
-      arg1.channel = {client_id: row.client_id, channel_id: row.channel_id, payload_regexp: row.payload_regexp};;
-      arg1.variable = {variable_id: row.variable_id, republish_topic: row.republish_topic, store_in_DB: row.store_in_DB};
+      arg1.channel = {client_id: row.client_id, channel_id: row.channel_id, payload_regexp: row.payload_regexp};
+      arg1.variable = {variable_id: row.variable_id, republish_topic: row.republish_topic, store_in_DB: row.store_in_DB, name:row.name};
+      arg1.device = {device_manufacturer_identification: row.device_manufacturer_identification};
     })
     .on('error', function(err) {
-      db_util.log(sql_stat, 'DB error: ' + util.inspect(err), dbclient, DEBUG_ERROR, DEBUG_LEVEL, arg1.client.client_id);
+      db_util.log(sql_stat, 'DB error: ' + util.inspect(err), dbclient, DEBUG_ERROR, DEBUG_LEVEL, arg1.client.client_id, null, arg1.packet.topic);
       console.log('DB error: ' + util.inspect(err) + "(" + util.inspect(sql_stat) + ")");
     })
     .on('end', function(info) {
       if (info.numRows != 1) { // No authorization
         var error_statement = "Client_id " + arg1.client.client_id + " not authorized for channel " + arg1.packet.topic;
-        db_util.log(util.inspect(sql_stat), error_statement, dbclient, DEBUG_WARNING, DEBUG_LEVEL, arg1.client.client_id);
+        db_util.log(util.inspect(sql_stat), error_statement, dbclient, DEBUG_WARNING, DEBUG_LEVEL, arg1.client.client_id, null, arg1.packet.topic);
         callback(error_statement);
       } else { // All is fine
         callback(null, arg1);
@@ -301,7 +305,7 @@ var get_channel_and_variable = function (arg1, callback) {
 var insert_reading_and_value = function (arg1, callback) {
   
   if (arg1.variable.store_in_DB == 1 || arg1.variable.store_in_DB == '1') {
-    db_util.log(arg1.variable, 'Storing in DB', dbclient, DEBUG_INFO, DEBUG_LEVEL, arg1.client.client_id);
+    db_util.log(arg1.variable, 'Storing in DB', dbclient, DEBUG_INFO, DEBUG_LEVEL, arg1.client.client_id, arg1.device.device_manufacturer_identification, arg1.packet.topic, arg1.variable.name);
 
     var preproc_sql = dbclient.prepare(
       'INSERT INTO readings (organization_id, measured_at_timestamp) ' 
@@ -313,7 +317,7 @@ var insert_reading_and_value = function (arg1, callback) {
       res.on('row', function(row) {
       })
       .on('error', function(err) {
-        db_util.log(sql_stat, 'DB error: ' + util.inspect(err), dbclient, DEBUG_ERROR, DEBUG_LEVEL, arg1.client.client_id);
+        db_util.log(sql_stat, 'DB error: ' + util.inspect(err), dbclient, DEBUG_ERROR, DEBUG_LEVEL, arg1.client.client_id, arg1.device.device_manufacturer_identification, arg1.packet.topic, arg1.variable.name);
         console.log('DB error: ' + util.inspect(err) + "(" + util.inspect(sql_stat) + ")");
       })
       .on('end', function(info) {
@@ -335,7 +339,7 @@ var insert_reading_and_value = function (arg1, callback) {
             res.on('row', function(row) {
             })
             .on('error', function(err) {
-              db_util.log(sql_stat, 'DB error: ' + util.inspect(err), dbclient, DEBUG_ERROR, DEBUG_LEVEL, arg1.client.client_id);
+              db_util.log(sql_stat, 'DB error: ' + util.inspect(err), dbclient, DEBUG_ERROR, DEBUG_LEVEL, arg1.client.client_id, arg1.device.device_manufacturer_identification, arg1.packet.topic, arg1.variable.name);
               console.log('DB error: ' + util.inspect(err) + "(" + util.inspect(sql_stat) + ")");
               callback('Error inserting value in DB' + util.inspect(err)); 
             })
@@ -354,7 +358,7 @@ var insert_reading_and_value = function (arg1, callback) {
     });
   }
   else {
-    db_util.log(arg1.variable, 'Not storing in DB', dbclient, DEBUG_INFO, DEBUG_LEVEL, arg1.client.client_id);
+    db_util.log(arg1.variable, 'Not storing in DB', dbclient, DEBUG_INFO, DEBUG_LEVEL, arg1.client.client_id, arg1.device.device_manufacturer_identification, arg1.packet.topic, arg1.variable.name);
     callback(null, arg1);
   }
 }
