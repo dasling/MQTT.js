@@ -5,6 +5,8 @@
 [![NPM](https://nodei.co/npm/mqtt.png)](https://nodei.co/npm/mqtt/)
 [![NPM](https://nodei.co/npm-dl/mqtt.png)](https://nodei.co/npm/mqtt/)
 
+This is a fork, with an additional example/server/dasling server to play with.
+
 mqtt.js is a library for the [MQTT](http://mqtt.org/) protocol, written
 in JavaScript to be used in node.js.
 
